@@ -1,7 +1,12 @@
+import atexit
 import argparse
 from collections import deque
 import os
+import shutil
 import sys
+
+os.environ.setdefault("PYTHONDONTWRITEBYTECODE", "1")
+sys.dont_write_bytecode = True
 
 import numpy as np
 import torch
@@ -10,9 +15,42 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
+
+
+def cleanup_imgui_ini():
+    candidate_paths = {
+        os.path.join(os.getcwd(), "imgui.ini"),
+        os.path.join(SCRIPT_DIR, "imgui.ini"),
+    }
+    for path in candidate_paths:
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+        except OSError:
+            pass
+
+
+def cleanup_pycache(root_dir):
+    if not os.path.isdir(root_dir):
+        return
+
+    for current_root, dirnames, _ in os.walk(root_dir, topdown=False):
+        for dirname in dirnames:
+            if dirname == "__pycache__":
+                shutil.rmtree(os.path.join(current_root, dirname), ignore_errors=True)
+
+
+def cleanup_runtime_artifacts():
+    cleanup_imgui_ini()
+    cleanup_pycache(REPO_ROOT)
+
+
+cleanup_runtime_artifacts()
+atexit.register(cleanup_runtime_artifacts)
 
 
 from data_preprocess.pcd_data_class import PCD_Dataset
@@ -25,7 +63,7 @@ VISUALIZE_HISTORY_SIZE = 5
 VISUALIZE_POINT_SIZE = 0.1
 VISUALIZE_SHOW_COVARIANCES = True
 VISUALIZE_COV_STRIDE = 1
-VISUALIZE_COV_SCALE = 0.01
+VISUALIZE_COV_SCALE = 0.005
 
 
 def load_icp_solver():
@@ -132,6 +170,7 @@ class POLIGICPViewer:
     def __init__(self, dataset_name, point_stride, history_size, point_size, show_covariances, cov_stride, cov_scale):
         self.guik, self.glk = load_iridescence()
         self.viewer = self.guik.LightViewer.instance(title=f"POLI-GICP | {dataset_name}")
+        self.viewer.set_clear_color(np.array((0.0, 0.0, 0.0, 1.0), dtype=np.float32))
         self.viewer.set_draw_xy_grid(True)
         self.viewer.set_point_shape(point_size=point_size, metric=True, circle=True)
         self.viewer.use_orbit_camera_control(distance=80.0, theta=0.35, phi=-1.0)
@@ -148,11 +187,10 @@ class POLIGICPViewer:
         self.gt_positions = []
         self.is_closed = False
         self.map_shader = self._build_vertex_shader()
-        self.target_shader = self._build_flat_shader((0.20, 0.75, 1.00), alpha=1.0)
-        self.source_shader = self._build_flat_shader((1.00, 0.58, 0.16), alpha=1.0)
+        self.source_shader = self._build_flat_shader((1.00, 1.00, 1.00), alpha=1.0)
         self.est_shader = self._build_flat_shader((1.00, 0.32, 0.24), alpha=1.0)
         self.gt_shader = self._build_flat_shader((0.18, 0.95, 0.52), alpha=1.0)
-        self.source_cov_shader = self._build_flat_shader((1.00, 0.58, 0.16), alpha=0.22).make_transparent()
+        self.source_cov_shader = self._build_flat_shader((0.96, 0.98, 1.00), alpha=0.20).make_transparent()
         self.coord_shader = self.guik.VertexColor()
 
     def _build_flat_shader(self, color, alpha=1.0):
@@ -182,25 +220,34 @@ class POLIGICPViewer:
         covs = [cov for cov in cov_np]
         return means, covs
 
-    def _jet_colors_from_z(self, points):
+    def _turbo_colors_from_z(self, points, pose_z):
         if points.shape[0] == 0:
             return np.empty((0, 4), dtype=np.float32)
 
-        z = points[:, 2]
-        z_mean = float(z.mean())
-        z_std = float(z.std())
-        z_min = z_mean - 2.0 * z_std
-        z_max = z_mean + 2.0 * z_std
+        relative_z = points[:, 2] - float(pose_z)
+        z_min = -2.0
+        z_max = float(np.percentile(relative_z, 95.0))
+        z_max = max(z_max, 2.0)
 
-        if z_std < 1e-8 or z_max - z_min < 1e-8:
-            z_norm = np.full(points.shape[0], 0.5, dtype=np.float32)
-        else:
-            z_clipped = np.clip(z, z_min, z_max)
-            z_norm = ((z_clipped - z_min) / (z_max - z_min)).astype(np.float32)
+        if z_max - z_min < 1e-8:
+            return np.full((points.shape[0], 4), (0.5, 0.5, 0.5, 1.0), dtype=np.float32)
 
-        r = np.clip(1.5 - np.abs(4.0 * z_norm - 3.0), 0.0, 1.0)
-        g = np.clip(1.5 - np.abs(4.0 * z_norm - 2.0), 0.0, 1.0)
-        b = np.clip(1.5 - np.abs(4.0 * z_norm - 1.0), 0.0, 1.0)
+        z_clipped = np.clip(relative_z, z_min, z_max)
+        z_norm = ((z_clipped - z_min) / (z_max - z_min)).astype(np.float32)
+        # Start Turbo away from its muddy low end so the lowest band stays visibly blue.
+        turbo_t = 0.10 + 0.90 * z_norm
+        z2 = turbo_t * turbo_t
+        z3 = z2 * turbo_t
+        z4 = z3 * turbo_t
+        z5 = z4 * turbo_t
+
+        # Polynomial approximation of the Google Turbo colormap.
+        r = 0.13572138 + 4.61539260 * turbo_t - 42.66032258 * z2 + 132.13108234 * z3 - 152.94239396 * z4 + 59.28637943 * z5
+        g = 0.09140261 + 2.19418839 * turbo_t + 4.84296658 * z2 - 14.18503333 * z3 + 4.27729857 * z4 + 2.82956604 * z5
+        b = 0.10667330 + 12.64194608 * turbo_t - 60.58204836 * z2 + 110.36276771 * z3 - 89.90310912 * z4 + 27.34824973 * z5
+        r = np.clip(r, 0.0, 1.0)
+        g = np.clip(g, 0.0, 1.0)
+        b = np.clip(b, 0.0, 1.0)
         a = np.ones_like(r, dtype=np.float32)
         return np.stack([r, g, b, a], axis=1).astype(np.float32)
 
@@ -218,15 +265,15 @@ class POLIGICPViewer:
         Q_world_np = point_tensor_to_numpy(Q_world, self.point_stride)
         P_aligned_world_np = point_tensor_to_numpy(P_aligned_world, self.point_stride)
         self.target_history.append(Q_world_np)
+        est_position = T_world_est[:3, 3].detach().cpu().numpy().astype(np.float32)
 
         map_points = np.vstack(list(self.target_history)) if self.target_history else np.empty((0, 3), dtype=np.float32)
-        map_colors = self._jet_colors_from_z(map_points)
+        map_colors = self._turbo_colors_from_z(map_points, pose_z=float(est_position[2]))
+        target_colors = self._turbo_colors_from_z(Q_world_np, pose_z=float(est_position[2]))
         world_rot_q = T_world_est[:3, :3]
         world_rot_p = world_rot_q @ R_est
-        C_q_world = self._world_covariances(C_q, world_rot_q)
         C_p_world = self._world_covariances(C_p, world_rot_p)
 
-        est_position = T_world_est[:3, 3].detach().cpu().numpy().astype(np.float32)
         gt_position = T_world_gt[:3, 3].detach().cpu().numpy().astype(np.float32)
         self.est_positions.append(est_position)
         self.gt_positions.append(gt_position)
@@ -238,10 +285,12 @@ class POLIGICPViewer:
             map_buffer,
             self.map_shader,
         )
-        self.viewer.update_points(
+        target_buffer = self.glk.PointCloudBuffer(Q_world_np)
+        target_buffer.add_color(target_colors)
+        self.viewer.update_drawable(
             "target_current",
-            Q_world_np,
-            self.target_shader,
+            target_buffer,
+            self.map_shader,
         )
         self.viewer.update_points(
             "source_aligned",
@@ -311,11 +360,13 @@ class POLIGICPViewer:
         )
         if not self.viewer.spin_once():
             self.is_closed = True
+        cleanup_imgui_ini()
 
     def wait(self):
         if self.is_closed:
             return
         self.viewer.spin()
+        cleanup_imgui_ini()
 
 
 def save_trajectory_pair(results, output_folder, name):

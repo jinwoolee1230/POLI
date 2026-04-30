@@ -12,7 +12,7 @@ from tqdm import tqdm
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils import covariance_generation, visualize_normals
-from visualization.common import (
+from visualization.vis_utils import (
     get_sample,
     get_sample_path,
     load_model,
