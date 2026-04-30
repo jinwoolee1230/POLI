@@ -189,8 +189,8 @@ class POLIGICPViewer:
         z = points[:, 2]
         z_mean = float(z.mean())
         z_std = float(z.std())
-        z_min = z_mean - 3.0 * z_std
-        z_max = z_mean + 3.0 * z_std
+        z_min = z_mean - 2.0 * z_std
+        z_max = z_mean + 2.0 * z_std
 
         if z_std < 1e-8 or z_max - z_min < 1e-8:
             z_norm = np.full(points.shape[0], 0.5, dtype=np.float32)
