@@ -1,1 +1,1 @@
-![demo](./assets/poli_covariance.gif)
+![demo](./assets/output.gif)
