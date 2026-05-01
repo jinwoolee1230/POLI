@@ -1,11 +1,18 @@
 import argparse
+import sys
 from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent.parent
+repo_root_str = str(REPO_ROOT)
+if repo_root_str not in sys.path:
+    sys.path.insert(0, repo_root_str)
 
 import numpy as np
 import torch
 
-from model import PointPP
-from registration_utils import (
+from applications.object_pose_estimation.model import PointPP
+from applications.object_pose_estimation.registration_utils import (
     covariance_generation,
     compute_fpfh_batch,
     estimate_correspondences,
@@ -27,6 +34,24 @@ def parse_args():
     parser.add_argument("--fpfh_radius", type=float, default=0.2)
     parser.add_argument("--fpfh_max_nn", type=int, default=90)
     parser.add_argument("--consensus_beta", type=float, default=0.1)
+    parser.add_argument(
+        "--robin_storage",
+        type=str,
+        default="ADJ_LIST",
+        choices=("ADJ_LIST", "CSR", "ATOMIC_CSR"),
+        help="ROBIN compatibility graph storage backend.",
+    )
+    parser.add_argument(
+        "--debug_robin",
+        action="store_true",
+        help="Print ROBIN graph, max-core, max-clique, and PMC diagnostics.",
+    )
+    parser.add_argument(
+        "--dump_robin_input",
+        type=str,
+        default=None,
+        help="Save the exact ROBIN inputs so the max-clique stage can be replayed.",
+    )
     parser.add_argument("--max_lines", type=int, default=1000)
     parser.add_argument("--max_normals", type=int, default=1000)
     parser.add_argument("--normal_length", type=float, default=0.15)
@@ -348,10 +373,27 @@ def main(args):
 
     src_matched = P_np
     tgt_matched = Q_np[matches]
+    if args.dump_robin_input:
+        dump_path = Path(args.dump_robin_input).expanduser().resolve()
+        dump_path.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(
+            dump_path,
+            src_matched=src_matched,
+            tgt_matched=tgt_matched,
+            matches=matches,
+            beta=np.asarray(args.consensus_beta, dtype=np.float64),
+            robin_storage=np.asarray(args.robin_storage),
+            sample_path=np.asarray(str(sample_path)),
+            checkpoint_path=np.asarray(str(checkpoint_path)),
+        )
+        print(f"[ROBIN] dumped input={dump_path}")
+
     src_inliers, tgt_inliers = maximum_consensus(
         src_matched,
         tgt_matched,
         beta=args.consensus_beta,
+        debug=args.debug_robin,
+        storage_type=args.robin_storage,
     )
     print(f"[Consensus] inliers={len(src_inliers)}/{len(src_matched)}")
     if len(src_inliers) < 3:

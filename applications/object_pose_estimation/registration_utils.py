@@ -1,4 +1,5 @@
 import math
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -86,7 +87,77 @@ def svd_registration(src_matched, tgt_matched):
     return T
 
 
-def maximum_consensus(src_matched, tgt_matched, beta=0.1):
+def _short_array_hash(array):
+    import hashlib
+
+    contiguous = np.ascontiguousarray(array)
+    return hashlib.sha256(contiguous.view(np.uint8)).hexdigest()
+
+
+def _file_sha256(path):
+    import hashlib
+
+    path = Path(path)
+    if not path.exists():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _graph_degree_stats(graph):
+    degrees = np.asarray(
+        [graph.GetVertexDegree(i) for i in range(graph.VertexCount())],
+        dtype=np.int64,
+    )
+    if degrees.size == 0:
+        return {"min": 0, "max": 0, "mean": 0.0}
+    return {
+        "min": int(degrees.min()),
+        "max": int(degrees.max()),
+        "mean": float(degrees.mean()),
+    }
+
+
+def _validate_clique(graph, indices):
+    indices = [int(i) for i in indices]
+    selected = set(indices)
+    for i in indices:
+        neighbors = {int(graph.GetVertexEdge(i, k)) for k in range(graph.GetVertexDegree(i))}
+        missing = sorted(selected.difference(neighbors).difference({i}))
+        if missing:
+            return False, (i, missing[:10])
+    return True, None
+
+
+def _run_clique_solver(spark_robin, graph, solver_mode):
+    params = spark_robin.MaxCliqueSolver.Params()
+    params.solver_mode = solver_mode
+    solver = spark_robin.MaxCliqueSolver(params)
+    return np.asarray(solver.FindMaxClique(graph), dtype=np.int64)
+
+
+def _print_robin_result(label, graph, indices, validate=True):
+    indices = np.asarray(indices, dtype=np.int64)
+    sorted_indices = np.sort(indices)
+    if validate:
+        valid, invalid_detail = _validate_clique(graph, indices)
+        valid_text = str(valid)
+    else:
+        valid, invalid_detail = None, None
+        valid_text = "n/a"
+    print(f"[ROBIN:{label}] count={len(indices)} valid_clique={valid_text}")
+    print(f"[ROBIN:{label}] sha256_ordered={_short_array_hash(indices)}")
+    print(f"[ROBIN:{label}] sha256_sorted={_short_array_hash(sorted_indices)}")
+    print(f"[ROBIN:{label}] first50={sorted_indices[:50].tolist()}")
+    print(f"[ROBIN:{label}] last50={sorted_indices[-50:].tolist()}")
+    if validate and not valid:
+        print(f"[ROBIN:{label}] invalid_detail={invalid_detail}")
+
+
+def maximum_consensus(src_matched, tgt_matched, beta=0.1, debug=False, storage_type="ADJ_LIST"):
     """
     ROBIN maximum clique consensus.
     """
@@ -95,16 +166,55 @@ def maximum_consensus(src_matched, tgt_matched, beta=0.1):
 
     import spark_robin
 
+    storage = getattr(spark_robin.GraphStorageType, storage_type)
     graph = spark_robin.Make3dRegInvGraph(
         src.T,
         tgt.T,
         float(beta),
-        spark_robin.GraphStorageType.ADJ_LIST,
+        storage,
     )
     indices = spark_robin.FindInlierStructure(
         graph,
         spark_robin.InlierGraphStructure.MAX_CLIQUE,
     )
+
+    if debug:
+        module_path = Path(spark_robin.__file__).resolve()
+        print(f"[ROBIN] module={module_path}")
+        print(f"[ROBIN] module_sha256={_file_sha256(module_path)}")
+        for lib_name in ("libpmc.a", "librobin.a"):
+            lib_path = module_path.parent / "lib" / lib_name
+            print(f"[ROBIN] {lib_name}_sha256={_file_sha256(lib_path)}")
+        print(f"[ROBIN] beta={float(beta)} storage={storage_type}")
+        print(f"[ROBIN] src_shape={src.shape} tgt_shape={tgt.shape}")
+        print(f"[ROBIN] src_sha256={_short_array_hash(src)}")
+        print(f"[ROBIN] tgt_sha256={_short_array_hash(tgt)}")
+        print(
+            f"[ROBIN] graph_vertices={graph.VertexCount()} "
+            f"graph_edges={graph.EdgeCount()} degree_stats={_graph_degree_stats(graph)}"
+        )
+        max_core = np.asarray(
+            spark_robin.FindInlierStructure(
+                graph,
+                spark_robin.InlierGraphStructure.MAX_CORE,
+            ),
+            dtype=np.int64,
+        )
+        _print_robin_result("max_core", graph, max_core, validate=False)
+        _print_robin_result("find_max_clique", graph, indices)
+        exact = _run_clique_solver(
+            spark_robin,
+            graph,
+            spark_robin.MaxCliqueSolver.CLIQUE_SOLVER_MODE.PMC_EXACT,
+        )
+        heuristic = _run_clique_solver(
+            spark_robin,
+            graph,
+            spark_robin.MaxCliqueSolver.CLIQUE_SOLVER_MODE.PMC_HEU,
+        )
+        _print_robin_result("direct_exact", graph, exact)
+        _print_robin_result("direct_heuristic", graph, heuristic)
+
     return src[indices, :], tgt[indices, :]
 
 

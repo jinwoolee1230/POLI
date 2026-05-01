@@ -1,8 +1,15 @@
 import argparse
 import os
+import sys
 from pathlib import Path
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent.parent
+repo_root_str = str(REPO_ROOT)
+if repo_root_str not in sys.path:
+    sys.path.insert(0, repo_root_str)
 
 import imageio.v2 as imageio
 import matplotlib
@@ -15,13 +22,13 @@ import torch
 from mpl_toolkits.mplot3d.art3d import Line3DCollection
 from scipy.spatial.transform import Rotation, Slerp
 
-from demo import (
+from applications.object_pose_estimation.demo import (
     load_npz_sample,
     make_covariance_normals,
     orient_normals_outward,
 )
-from model import PointPP
-from registration_utils import (
+from applications.object_pose_estimation.model import PointPP
+from applications.object_pose_estimation.registration_utils import (
     compute_fpfh_batch,
     estimate_correspondences,
     load_checkpoint,

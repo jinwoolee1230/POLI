@@ -6,17 +6,37 @@ from scipy.spatial.transform import Rotation as R
 import numpy as np
 import open3d as o3d
 
+def compute_outlier_bounds(values, whisker_scale=1.5):
+    values = np.asarray(values, dtype=np.float64)
+    if values.size == 0:
+        return 0.0, 1.0
+
+    q1, q3 = np.percentile(values, [25.0, 75.0])
+    iqr = q3 - q1
+
+    if iqr <= 1e-8:
+        return float(values.min()), float(values.max())
+
+    lower = q1 - whisker_scale * iqr
+    upper = q3 + whisker_scale * iqr
+    return float(lower), float(upper)
+
+
+def map_z_to_colors(points, colormap="jet", whisker_scale=1.5):
+    z_values = points[:, 2]
+    z_min, z_max = compute_outlier_bounds(z_values, whisker_scale=whisker_scale)
+    z_clipped = np.clip(z_values, z_min, z_max)
+    z_norm = (z_clipped - z_min) / (z_max - z_min + 1e-8)
+    cmap = cm.get_cmap(colormap)
+    return cmap(z_norm)[:, :3]
+
+
 def visualize_normals(points, covariances, colormap='turbo',
                           show_normals=False, normal_length=3.0, normal_color=(0.0, 1.0, 0.0)):
     """
     Visualize point cloud with optional normals (LineSet or cylinders).
     """
-    # Normalize Z for coloring
-    z_values = points[:, 2]
-    z_min, z_max = z_values.min(), z_values.max()
-    z_norm = (z_values - z_min) / (z_max - z_min + 1e-8)
-    cmap = cm.get_cmap(colormap)
-    colors = cmap(z_norm)[:, :3]
+    colors = map_z_to_colors(points, colormap=colormap)
 
     # Point cloud
     pcd = o3d.geometry.PointCloud()

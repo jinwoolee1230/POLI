@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils import covariance_generation, visualize_normals
+from utils import covariance_generation, map_z_to_colors, visualize_normals
 from visualization.vis_utils import (
     get_sample,
     get_sample_path,
@@ -71,7 +71,7 @@ def build_parser(default_mode="ellipsoid", include_mode=True):
     parser.add_argument(
         "--uncertainty_colormap",
         type=str,
-        default="turbo",
+        default="jet",
         help="Used in normal mode",
     )
     parser.add_argument("--normal_length", type=float, default=3.0, help="Used in normal mode")
@@ -176,12 +176,38 @@ def limit_render_points(points, max_points):
     return points[indices]
 
 
-def build_ellipsoid_geometries(points, covariances, n_std, min_eig, ellipsoid_resolution):
-    import matplotlib.cm as cm
+def filter_z_outliers(points, covariances=None):
+    if points.shape[0] < 4:
+        if covariances is None:
+            return points
+        return points, covariances
 
     z = points[:, 2]
-    z_norm = (z - z.min()) / (z.max() - z.min() + 1e-8)
-    colors = cm.get_cmap("winter_r")(z_norm)[:, :3]
+    q1, q3 = np.percentile(z, [25.0, 75.0])
+    iqr = q3 - q1
+
+    if iqr <= 1e-8:
+        if covariances is None:
+            return points
+        return points, covariances
+
+    lower = q1 - 8.0 * iqr
+    upper = q3 + 8.0 * iqr
+    mask = (z >= lower) & (z <= upper)
+
+    if not np.any(mask):
+        if covariances is None:
+            return points
+        return points, covariances
+
+    filtered_points = points[mask]
+    if covariances is None:
+        return filtered_points
+    return filtered_points, covariances[mask]
+
+
+def build_ellipsoid_geometries(points, covariances, n_std, min_eig, ellipsoid_resolution):
+    colors = map_z_to_colors(points, colormap="jet")
 
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(points)
@@ -243,6 +269,7 @@ def run_ellipsoid_mode(args, model, dataset, device):
     points = P[0].permute(1, 0).cpu().numpy()
     covariances = C[0].cpu().numpy()
     points, covariances = subsample_points_and_covariances(points, covariances, args.max_input_points)
+    points, covariances = filter_z_outliers(points, covariances)
     geometries = build_ellipsoid_geometries(
         points,
         covariances,
@@ -255,6 +282,7 @@ def run_ellipsoid_mode(args, model, dataset, device):
     vis.create_window("Covariance Ellipsoids", 1280, 800)
     render_option = vis.get_render_option()
     render_option.point_size = 2.0
+    render_option.background_color = np.array([0.0, 0.0, 0.0])
 
     for geometry in geometries:
         vis.add_geometry(geometry)
@@ -278,6 +306,7 @@ def run_normal_mode(args, model, dataset, device):
     points = P[0].permute(1, 0).cpu().numpy()
     covariances = C[0].cpu().numpy()
     points, covariances = subsample_points_and_covariances(points, covariances, args.max_input_points)
+    points, covariances = filter_z_outliers(points, covariances)
 
     visualize_normals(
         points,
@@ -290,8 +319,6 @@ def run_normal_mode(args, model, dataset, device):
 
 
 def run_augment_mode(args, model, dataset, device):
-    import matplotlib.pyplot as plt
-
     window_width = 960
     window_height = 720
     n_std = resolve_n_std(args)
@@ -305,7 +332,7 @@ def run_augment_mode(args, model, dataset, device):
 
     render_option = vis.get_render_option()
     render_option.point_size = 0.3
-    render_option.background_color = np.array([1.0, 1.0, 1.0])
+    render_option.background_color = np.array([0.0, 0.0, 0.0])
 
     point_cloud = o3d.geometry.PointCloud()
     geometry_added = False
@@ -381,6 +408,7 @@ def run_augment_mode(args, model, dataset, device):
             points = P[0].permute(1, 0).cpu().numpy()
             covariances = C[0].cpu().numpy()
             points, covariances = subsample_points_and_covariances(points, covariances, args.max_input_points)
+            points, covariances = filter_z_outliers(points, covariances)
 
             sampled_points = sample_points_from_covariance(
                 points,
@@ -388,11 +416,10 @@ def run_augment_mode(args, model, dataset, device):
                 n_samples=args.samples_per_point,
                 n_std=n_std,
             )
+            sampled_points = filter_z_outliers(sampled_points)
             sampled_points = limit_render_points(sampled_points, args.max_render_points)
 
-            z = sampled_points[:, 2]
-            z_norm = (z - z.min()) / (z.max() - z.min() + 1e-8)
-            colors = plt.cm.winter_r(z_norm)[:, :3]
+            colors = map_z_to_colors(sampled_points, colormap="jet")
 
             point_cloud.points = o3d.utility.Vector3dVector(sampled_points)
             point_cloud.colors = o3d.utility.Vector3dVector(colors)
