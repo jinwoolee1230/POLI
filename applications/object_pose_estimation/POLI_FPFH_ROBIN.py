@@ -24,7 +24,6 @@ from registration_utils import (
     load_checkpoint,
     maximum_consensus,
     rotation_translation_error,
-    svd_registration,
 )
 
 
@@ -41,6 +40,8 @@ DEMO_DEFAULTS = {
     "fpfh_radius": 0.2,
     "fpfh_max_nn": 90,
     "consensus_beta": 0.1,
+    "gnc_solver": "tls",
+    "gnc_noise_bound": 0.05,
     "max_lines": 1000,
     "max_normals": 1000,
     "normal_length": 0.15,
@@ -76,6 +77,8 @@ def parse_args():
     parser.add_argument("--fpfh_radius", type=float, default=DEMO_DEFAULTS["fpfh_radius"])
     parser.add_argument("--fpfh_max_nn", type=int, default=DEMO_DEFAULTS["fpfh_max_nn"])
     parser.add_argument("--consensus_beta", type=float, default=DEMO_DEFAULTS["consensus_beta"])
+    parser.add_argument("--gnc_solver", choices=("tls", "gm"), default=DEMO_DEFAULTS["gnc_solver"])
+    parser.add_argument("--gnc_noise_bound", type=float, default=DEMO_DEFAULTS["gnc_noise_bound"])
 
     parser.add_argument("--scan_separation", type=float, default=2.2)
     parser.add_argument("--max_points", type=int, default=2400)
@@ -85,9 +88,9 @@ def parse_args():
 
     parser.add_argument("--normal_length", type=float, default=DEMO_DEFAULTS["normal_length"])
     parser.add_argument("--covariance_scale", type=float, default=0.06)
-    parser.add_argument("--point_size", type=float, default=0.018)
-    parser.add_argument("--line_width", type=float, default=1.9)
-    parser.add_argument("--normal_width", type=float, default=1.4)
+    parser.add_argument("--point_size", type=float, default=0.009)
+    parser.add_argument("--line_width", type=float, default=0.95)
+    parser.add_argument("--normal_width", type=float, default=0.7)
 
     parser.add_argument("--camera_theta", type=float, default=0.36)
     parser.add_argument("--camera_phi", type=float, default=-0.92)
@@ -136,6 +139,88 @@ def clean_rotation(R_mat):
         vh[2, :] *= -1
         R_clean = u @ vh
     return R_clean
+
+
+def horns_method(P, Q):
+    P = np.asarray(P, dtype=np.float64)
+    Q = np.asarray(Q, dtype=np.float64)
+    centroid_P = np.mean(P, axis=0)
+    centroid_Q = np.mean(Q, axis=0)
+    H = (P - centroid_P).T @ (Q - centroid_Q)
+    U, _, Vt = np.linalg.svd(H)
+    R = Vt.T @ U.T
+    if np.linalg.det(R) < 0:
+        Vt[2, :] *= -1
+        R = Vt.T @ U.T
+    t = centroid_Q - R @ centroid_P
+    return R, t
+
+
+def weighted_horns(P, Q, weights):
+    P = np.asarray(P, dtype=np.float64)
+    Q = np.asarray(Q, dtype=np.float64)
+    w = np.asarray(weights, dtype=np.float64).reshape(-1, 1)
+    sum_w = np.sum(w)
+    if sum_w <= 1e-12:
+        raise ValueError("Sum of weights must be greater than zero")
+    centroid_P = np.sum(w * P, axis=0) / sum_w
+    centroid_Q = np.sum(w * Q, axis=0) / sum_w
+    H = (P - centroid_P).T @ (w * (Q - centroid_Q))
+    U, _, Vt = np.linalg.svd(H)
+    R = Vt.T @ U.T
+    if np.linalg.det(R) < 0:
+        Vt[2, :] *= -1
+        R = Vt.T @ U.T
+    t = centroid_Q - R @ centroid_P
+    return R, t
+
+
+def GNC_GM(P, Q, noise_bound=0.01, max_iterations=100):
+    P = np.asarray(P, dtype=np.float64)
+    Q = np.asarray(Q, dtype=np.float64)
+    c2 = max(float(noise_bound) ** 2, 1e-12)
+    R, t = horns_method(P, Q)
+    r2 = np.sum((Q - (R @ P.T).T - t) ** 2, axis=1)
+    mu = max(2.0 * float(np.max(r2)) / c2, 1.0)
+    for _ in range(max_iterations):
+        w = (mu * c2 / np.maximum(r2 + mu * c2, 1e-12)) ** 2
+        R, t = weighted_horns(P, Q, w)
+        r2 = np.sum((Q - (R @ P.T).T - t) ** 2, axis=1)
+        mu /= 1.1
+        if mu < 1.0:
+            break
+    return R, t
+
+
+def GNC_TLS(P, Q, noise_bound=0.01, max_iterations=100):
+    P = np.asarray(P, dtype=np.float64)
+    Q = np.asarray(Q, dtype=np.float64)
+    c2 = max(float(noise_bound) ** 2, 1e-12)
+    R, t = horns_method(P, Q)
+    r2 = np.sum((Q - (R @ P.T).T - t) ** 2, axis=1)
+    denom = 2.0 * float(np.max(r2)) - c2
+    mu = max(c2 / denom if abs(denom) > 1e-12 else 1.0, 1e-12)
+    R_old, t_old = np.eye(3), np.zeros(3)
+    for _ in range(max_iterations):
+        th1 = (mu / (mu + 1.0)) * c2
+        th2 = ((mu + 1.0) / mu) * c2
+        mid = (float(noise_bound) / (np.sqrt(r2) + 1e-9)) * np.sqrt(mu * (mu + 1.0)) - mu
+        w = np.where(r2 < th1, 1.0, np.where(r2 > th2, 0.0, mid))
+        R, t = weighted_horns(P, Q, w)
+        r2 = np.sum((Q - (R @ P.T).T - t) ** 2, axis=1)
+        mu *= 1.1
+        if np.linalg.norm(R - R_old) < 1e-6 and np.linalg.norm(t - t_old) < 1e-6:
+            break
+        R_old, t_old = R, t
+    return R, t
+
+
+def gnc_registration(P, Q, solver, noise_bound):
+    if solver == "gm":
+        return GNC_GM(P, Q, noise_bound=noise_bound)
+    if solver == "tls":
+        return GNC_TLS(P, Q, noise_bound=noise_bound)
+    raise ValueError(f"Unknown GNC solver: {solver}")
 
 
 def make_slerp(R_est):
@@ -323,9 +408,14 @@ def load_pipeline_data(args):
     if len(src_inliers) < 3:
         raise RuntimeError("Not enough inliers to estimate pose.")
 
-    T_est = svd_registration(src_inliers, tgt_inliers)
-    R_est = clean_rotation(T_est[:3, :3])
-    t_est = T_est[:3, 3]
+    gnc_noise_bound = args.gnc_noise_bound if args.gnc_noise_bound is not None else args.consensus_beta
+    R_raw, t_est = gnc_registration(
+        src_inliers,
+        tgt_inliers,
+        solver=args.gnc_solver,
+        noise_bound=gnc_noise_bound,
+    )
+    R_est = clean_rotation(R_raw)
 
     rot_error, trans_error = rotation_translation_error(
         R_est,
@@ -386,11 +476,7 @@ class IridescencePipelineViewer:
             "cov_idx_q": choose_indices(len(data["Q_np"]), args.max_covariances, args.seed + 4),
             "normal_idx_p": choose_indices(len(data["P_np"]), args.max_normals, args.seed + 5),
             "normal_idx_q": choose_indices(len(data["Q_np"]), args.max_normals, args.seed + 6),
-            "line_idx": choose_indices(
-                len(data["src_inliers"]),
-                min(args.max_lines, len(data["src_inliers"])),
-                args.seed + 7,
-            ),
+            "line_idx": self._make_sweep_line_idx(data, args),
             "slerp": make_slerp(data["R_est"]),
         }
 
@@ -400,7 +486,7 @@ class IridescencePipelineViewer:
         self.viewer.set_clear_color(np.array((0.01, 0.015, 0.035, 1.0), dtype=np.float32))
         self.viewer.set_draw_xy_grid(bool(args.grid))
         self.viewer.set_point_shape(point_size=args.point_size, metric=True, circle=True)
-        self.viewer.use_orbit_camera_control(
+        self.viewer.use_arcball_camera_control(
             distance=self.camera_distance,
             theta=args.camera_theta,
             phi=args.camera_phi,
@@ -416,7 +502,13 @@ class IridescencePipelineViewer:
         self.normal_target_shader = self._make_flat_shader((0.18, 0.98, 0.92), 0.96)
         self.normal_source_shader = self._make_flat_shader((1.0, 0.78, 0.32), 0.96)
         self.corr_shader = self._make_flat_shader((0.18, 1.0, 0.72), 0.95)
-        self.coord_shader = self.guik.VertexColor()
+
+    @staticmethod
+    def _make_sweep_line_idx(data, args):
+        n = len(data["src_inliers"])
+        raw = choose_indices(n, min(args.max_lines, n), args.seed + 7)
+        sweep_order = np.argsort(data["src_inliers"][raw, 0])
+        return raw[sweep_order]
 
     def _make_flat_shader(self, color, alpha):
         shader = self.guik.FlatColor(
@@ -521,11 +613,12 @@ class IridescencePipelineViewer:
                 "",
                 f"sample: {self.data['sample_path'].name}",
                 f"inliers: {len(self.data['src_inliers'])}",
+                f"gnc: {self.args.gnc_solver} | noise_bound: {self.args.gnc_noise_bound}",
                 f"rot err: {self.data['rot_error']:.3f} deg",
                 f"trans err: {self.data['trans_error']:.5f}",
                 "",
                 "theme: turbo target / iridescent source",
-                "controls: drag orbit, wheel zoom",
+                "controls: drag arcball, wheel zoom",
             ]
         )
 
@@ -672,7 +765,6 @@ class IridescencePipelineViewer:
             self.args.line_width,
         )
 
-        self.viewer.update_coord("world_axes", self.coord_shader)
         self.viewer.lookat(self.center.astype(np.float32))
         self._update_hud(stage)
         alive = self.viewer.spin_once()
