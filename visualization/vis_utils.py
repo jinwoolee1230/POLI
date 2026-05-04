@@ -21,11 +21,12 @@ def load_parsed_dataset(dataset_dir):
 
 
 def load_model(checkpoint, device):
-    from model.pointnetpp_core import PointPP
+    from model.pointnetpp_scene import PointPP
 
     model = PointPP().to(device)
     ckpt = torch.load(checkpoint, map_location=device)
-    model.load_state_dict(ckpt["model_state_dict"])
+    state_dict = ckpt.get("model_state_dict", ckpt)
+    model.load_state_dict(state_dict)
     model.eval()
     return model
 

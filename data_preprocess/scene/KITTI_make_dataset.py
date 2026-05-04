@@ -1,6 +1,9 @@
 import os
-import numpy as np
+import sys
+sys.dont_write_bytecode = True
 import argparse
+
+import numpy as np
 import open3d as o3d
 from KITTI_utils import load_lidar_bin, load_ground_truth, compute_indices_dists, load_calibration
 

@@ -1,5 +1,6 @@
 import os
 import sys
+sys.dont_write_bytecode = True
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import torch
 import argparse
@@ -7,7 +8,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 from data_preprocess.pcd_data_class import PCD_Dataset
-from model.pointnetpp_core import PointPP
+from model.pointnetpp_scene import PointPP
 from sdprlayers import SDPPoseEstimator
 
 from utils import covariance_generation, sigmoid_mask, to_homogeneous_xyz, make_loss, scale_aware_normalization

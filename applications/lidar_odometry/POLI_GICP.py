@@ -20,18 +20,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 if REPO_ROOT not in sys.path:
     sys.path.append(REPO_ROOT)
 
-
-def cleanup_imgui_ini():
-    candidate_paths = {
-        os.path.join(os.getcwd(), "imgui.ini"),
-        os.path.join(SCRIPT_DIR, "imgui.ini"),
-    }
-    for path in candidate_paths:
-        try:
-            if os.path.isfile(path):
-                os.remove(path)
-        except OSError:
-            pass
+from visualization.iridescence_utils import cleanup_imgui_ini, load_iridescence
 
 
 def cleanup_pycache(root_dir):
@@ -45,7 +34,7 @@ def cleanup_pycache(root_dir):
 
 
 def cleanup_runtime_artifacts():
-    cleanup_imgui_ini()
+    cleanup_imgui_ini(SCRIPT_DIR)
     cleanup_pycache(REPO_ROOT)
 
 
@@ -54,7 +43,7 @@ atexit.register(cleanup_runtime_artifacts)
 
 
 from data_preprocess.pcd_data_class import PCD_Dataset
-from model.pointnetpp_core import PointPP
+from model.pointnetpp_scene import PointPP
 from utils import covariance_generation, scale_aware_normalization
 
 
@@ -79,18 +68,6 @@ def load_icp_solver():
                 "module and its dependencies are available before running POLI_GICP."
             ) from exc
     return icp_generalized_gauss_newton
-
-
-def load_iridescence():
-    try:
-        import pyridescence.guik as guik
-        import pyridescence.glk as glk
-    except ImportError as exc:
-        raise ImportError(
-            "Visualization requires `pyridescence`. Install it in the environment "
-            "you use to run POLI_GICP."
-        ) from exc
-    return guik, glk
 
 
 def parse_args():

@@ -1,8 +1,15 @@
 import argparse
+import sys
+sys.dont_write_bytecode = True
 from pathlib import Path
 
 import numpy as np
-from scipy.spatial import cKDTree
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
+
+from utils import compute_indices_dists
 
 
 def parse_args():
@@ -136,13 +143,6 @@ def sample_random_transform(rng, translation_range=0.0, rotation_max_deg=30.0):
 
 def apply_transform(points_nx3, R, t_3x1):
     return (points_nx3 @ R.T) + t_3x1.reshape(1, 3)
-
-
-def compute_indices_dists(P_3xN, Q_3xM, R_rel, t_rel):
-    P_trans = (R_rel @ P_3xN) + t_rel
-    tree = cKDTree(Q_3xM.T)
-    dists, indices = tree.query(P_trans.T, k=1)
-    return indices.astype(np.int64), dists.astype(np.float32)
 
 
 def object_name_from_path(path):

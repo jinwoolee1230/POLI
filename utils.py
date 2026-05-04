@@ -1,10 +1,8 @@
 import torch
-from scipy.spatial.transform import Rotation as R
 import matplotlib.cm as cm
-import matplotlib.colors as mcolors
-from scipy.spatial.transform import Rotation as R
 import numpy as np
 import open3d as o3d
+from scipy.spatial import cKDTree
 
 def compute_outlier_bounds(values, whisker_scale=1.5):
     values = np.asarray(values, dtype=np.float64)
@@ -163,3 +161,10 @@ def to_homogeneous_xyz(points_xyz):
     DTYPE = points_xyz.dtype
     ones = torch.ones(B, N, 1, device=DEVICE, dtype=DTYPE)
     return torch.cat([points_xyz, ones], dim=-1).permute(0, 2, 1).contiguous()
+
+
+def compute_indices_dists(P_3xN, Q_3xM, R_rel, t_rel):
+    P_trans = (R_rel @ P_3xN) + t_rel
+    tree = cKDTree(Q_3xM.T)
+    dists, indices = tree.query(P_trans.T, k=1)
+    return indices.astype(np.int64), dists.astype(np.float32)

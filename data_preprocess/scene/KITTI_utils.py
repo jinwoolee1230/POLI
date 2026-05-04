@@ -1,6 +1,13 @@
 import numpy as np
 import torch
-from scipy.spatial import cKDTree
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
+
+from utils import compute_indices_dists
 
 
 # ============================================================
@@ -77,13 +84,3 @@ def compute_relative_transform(pose1, pose2):
     R_rel = T_rel[:3, :3]
     t_rel = T_rel[:3, 3].reshape(3,1)
     return R_rel, t_rel
-
-
-# ============================================================
-# NN correspondences
-# ============================================================
-def compute_indices_dists(P, Q, R_rel, t_rel):
-    P_trans = (R_rel @ P) + t_rel
-    tree = cKDTree(Q.T)
-    dists, idx = tree.query(P_trans.T, k=1)
-    return idx, dists

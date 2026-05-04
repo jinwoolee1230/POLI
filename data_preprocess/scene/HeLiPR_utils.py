@@ -3,6 +3,14 @@ import open3d as o3d
 from scipy.spatial import cKDTree
 from scipy.spatial.transform import Rotation as R
 import struct
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
+
+from utils import compute_indices_dists
 
 def load_lidar_bin(path):
     # if os2, num = 26
@@ -52,16 +60,6 @@ def compute_correspondences(P, Q, R_rel, t_rel):
     Q_corr = Q.T[idx] # (M x 3)
     C = np.stack([P.T, Q_corr], axis=1) # (M x 2 x 3)
     return C
-
-def compute_indices_dists(P, Q, R_rel, t_rel):
-    '''
-    #! P: (3, N) - LiDAR scan at time t
-    #! Q: (3, M) - LiDAR scan at time t+1
-    '''
-    P_trans = (R_rel @ P) + t_rel
-    tree = cKDTree(Q.T)
-    dist, idx = tree.query(P_trans.T, k=1)
-    return idx, dist
 
 def visualize_point_clouds(P, Q):
     pcd_P = o3d.geometry.PointCloud()

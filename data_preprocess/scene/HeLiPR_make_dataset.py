@@ -1,6 +1,9 @@
 import os 
-import numpy as np
+import sys
+sys.dont_write_bytecode = True
 import argparse
+
+import numpy as np
 import open3d as o3d
 from HeLiPR_utils import load_lidar_bin, load_ground_truth, get_pose_from_gt, compute_relative_transform, compute_indices_dists
 

@@ -2,22 +2,9 @@ import math
 
 import numpy as np
 import torch
+from scipy.spatial import cKDTree
 
-
-def covariance_generation(elements):
-    """
-    elements: [B, N, 6]
-    return: [B, N, 3, 3]
-    """
-    B, N, _ = elements.shape
-    L = torch.zeros(B, N, 3, 3, device=elements.device, dtype=elements.dtype)
-    L[:, :, 0, 0] = elements[..., 0]
-    L[:, :, 1, 0] = elements[..., 3]
-    L[:, :, 1, 1] = elements[..., 1]
-    L[:, :, 2, 0] = elements[..., 4]
-    L[:, :, 2, 1] = elements[..., 5]
-    L[:, :, 2, 2] = elements[..., 2]
-    return L @ L.transpose(-2, -1)
+from utils import covariance_generation
 
 
 def normals_from_covariance(covariance):
@@ -49,6 +36,32 @@ def compute_fpfh_batch(points_b3n, normals_bn3, radius=0.3, max_nn=90):
     return torch.tensor(np.stack(fpfh_list, axis=0), dtype=torch.float32, device=points_b3n.device)
 
 
+def compute_fpfh(points, normal_radius, feature_radius, normal_max_nn, feature_max_nn):
+    try:
+        import open3d as o3d
+    except ImportError as exc:
+        raise ImportError("open3d is required for FPFH feature extraction.") from exc
+
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(np.asarray(points, dtype=np.float64))
+    pcd.estimate_normals(
+        search_param=o3d.geometry.KDTreeSearchParamHybrid(
+            radius=normal_radius,
+            max_nn=normal_max_nn,
+        )
+    )
+    pcd.normalize_normals()
+    feat = o3d.pipelines.registration.compute_fpfh_feature(
+        pcd,
+        o3d.geometry.KDTreeSearchParamHybrid(
+            radius=feature_radius,
+            max_nn=feature_max_nn,
+        ),
+    )
+    fpfh = np.asarray(feat.data, dtype=np.float32).T
+    return np.nan_to_num(fpfh, nan=0.0, posinf=0.0, neginf=0.0)
+
+
 def estimate_correspondences(feat_src, feat_tgt):
     """
     feat_src: [D, Ns]
@@ -57,6 +70,20 @@ def estimate_correspondences(feat_src, feat_tgt):
     """
     dists = torch.cdist(feat_src.T, feat_tgt.T, p=2)
     return torch.argmin(dists, dim=1)
+
+
+def estimate_mutual_feature_matches(fpfh_src, fpfh_tgt):
+    target_tree = cKDTree(fpfh_tgt)
+    _, src_to_tgt = target_tree.query(fpfh_src, k=1, workers=-1)
+    src_to_tgt = src_to_tgt.astype(np.int64)
+
+    source_tree = cKDTree(fpfh_src)
+    _, tgt_to_src = source_tree.query(fpfh_tgt, k=1, workers=-1)
+    tgt_to_src = tgt_to_src.astype(np.int64)
+
+    src_idx = np.arange(fpfh_src.shape[0], dtype=np.int64)
+    mutual = tgt_to_src[src_to_tgt] == src_idx
+    return src_idx[mutual], src_to_tgt[mutual]
 
 
 def svd_registration(src_matched, tgt_matched):
@@ -107,6 +134,108 @@ def maximum_consensus(src_matched, tgt_matched, beta=0.1):
     )
 
     return src[indices, :], tgt[indices, :]
+
+
+def horns_method(P, Q):
+    P = np.asarray(P, dtype=np.float64)
+    Q = np.asarray(Q, dtype=np.float64)
+    centroid_P = np.mean(P, axis=0)
+    centroid_Q = np.mean(Q, axis=0)
+    P_centered = P - centroid_P
+    Q_centered = Q - centroid_Q
+
+    U, _, Vt = np.linalg.svd(P_centered.T @ Q_centered)
+    R = Vt.T @ U.T
+    if np.linalg.det(R) < 0:
+        Vt[-1] *= -1
+        R = Vt.T @ U.T
+    t = centroid_Q - R @ centroid_P
+    return R, t
+
+
+def weighted_horns(P, Q, weights):
+    P = np.asarray(P, dtype=np.float64)
+    Q = np.asarray(Q, dtype=np.float64)
+    w = np.asarray(weights, dtype=np.float64).reshape(-1, 1)
+    sum_w = np.sum(w)
+    if sum_w <= 1e-12:
+        raise ValueError("Sum of weights must be greater than zero.")
+
+    centroid_P = np.sum(w * P, axis=0) / sum_w
+    centroid_Q = np.sum(w * Q, axis=0) / sum_w
+    P_centered = P - centroid_P
+    Q_centered = Q - centroid_Q
+
+    U, _, Vt = np.linalg.svd(P_centered.T @ (w * Q_centered))
+    R = Vt.T @ U.T
+    if np.linalg.det(R) < 0:
+        Vt[-1] *= -1
+        R = Vt.T @ U.T
+    t = centroid_Q - R @ centroid_P
+    return R, t
+
+
+def GNC_GM(P, Q, noise_bound=1.0, max_iterations=100):
+    P = np.asarray(P, dtype=np.float64)
+    Q = np.asarray(Q, dtype=np.float64)
+    c2 = max(float(noise_bound) ** 2, 1e-12)
+
+    R, t = horns_method(P, Q)
+    r = Q - (R @ P.T).T - t
+    r2 = np.sum(r**2, axis=1)
+    mu = max(2.0 * float(np.max(r2)) / c2, 1.0)
+
+    for _ in range(max_iterations):
+        den = r2 + mu * c2
+        weights = (mu * c2 / np.maximum(den, 1e-12)) ** 2
+        R, t = weighted_horns(P, Q, weights)
+        r = Q - (R @ P.T).T - t
+        r2 = np.sum(r**2, axis=1)
+        mu = mu / 1.1
+        if mu < 1.0:
+            break
+    return R, t
+
+
+def GNC_TLS(P, Q, noise_bound=1.0, max_iterations=100):
+    P = np.asarray(P, dtype=np.float64)
+    Q = np.asarray(Q, dtype=np.float64)
+    c_bar = float(noise_bound)
+    c2 = max(c_bar * c_bar, 1e-12)
+
+    R, t = horns_method(P, Q)
+    r = Q - (R @ P.T).T - t
+    r2 = np.sum(r**2, axis=1)
+    r2max = float(np.max(r2))
+    denom = 2.0 * r2max - c2
+    mu = c2 / denom if abs(denom) > 1e-12 else 1.0
+    mu = max(mu, 1e-12)
+
+    R_old = np.eye(3)
+    t_old = np.zeros(3)
+    for _ in range(max_iterations):
+        th1 = (mu / (mu + 1.0)) * c2
+        th2 = ((mu + 1.0) / mu) * c2
+        mid = (c_bar / (np.sqrt(r2) + 1e-9)) * np.sqrt(mu * (mu + 1.0)) - mu
+        weights = np.where(r2 < th1, 1.0, np.where(r2 > th2, 0.0, mid))
+
+        R, t = weighted_horns(P, Q, weights)
+        r = Q - (R @ P.T).T - t
+        r2 = np.sum(r**2, axis=1)
+        mu = mu * 1.1
+
+        if np.linalg.norm(R - R_old) < 1e-6 and np.linalg.norm(t - t_old) < 1e-6:
+            break
+        R_old, t_old = R, t
+    return R, t
+
+
+def gnc_registration(P, Q, solver, noise_bound):
+    if solver == "gm":
+        return GNC_GM(P, Q, noise_bound=noise_bound)
+    if solver == "tls":
+        return GNC_TLS(P, Q, noise_bound=noise_bound)
+    raise ValueError(f"Unknown GNC solver: {solver}")
 
 
 def rotation_translation_error(R_est, t_est, R_gt, t_gt):
