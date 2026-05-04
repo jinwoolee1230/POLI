@@ -3,6 +3,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)) + "/../..")
 import torch
 import math
+from typing import Optional
 from data_preprocess.pcd_data_class import PCD_Dataset
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -411,7 +412,12 @@ def icp_generalized_gauss_newton_corr_batch_softmask(
 
     return delta_R, delta_t  # [B, 3, 3], [B, 3, 1]
 
-def find_nearest_neighbors(src: torch.Tensor, dst: torch.Tensor) -> tuple:
+def find_nearest_neighbors(
+    src: torch.Tensor,
+    dst: torch.Tensor,
+    kd_tree=None,
+    chunk_size: Optional[int] = None,
+) -> tuple:
     """
     src: (N, 3) transformed source points (P')
     dst: (M, 3) target points (Q)
@@ -420,10 +426,22 @@ def find_nearest_neighbors(src: torch.Tensor, dst: torch.Tensor) -> tuple:
         dists: (N,) 가장 가까운 점까지의 거리
         indices: (N,) 가장 가까운 점의 인덱스
     """
-    # 거리 계산 (브로드캐스팅 없이, GPU 가능)
-    dists = torch.cdist(src.unsqueeze(0), dst.unsqueeze(0)).squeeze(0)  # [N, M]
-    min_dists, indices = dists.min(dim=1)  # 각 P_i에 대해 가장 가까운 Q_j
-    return min_dists, indices
+    if kd_tree is not None:
+        dists, indices = kd_tree.query(src, nr_nns_searches=1)
+        return dists.reshape(-1), indices.reshape(-1).long()
+
+    if chunk_size is None or chunk_size <= 0 or src.shape[0] <= chunk_size:
+        dists = torch.cdist(src.unsqueeze(0), dst.unsqueeze(0)).squeeze(0)
+        return dists.min(dim=1)
+
+    min_dists = []
+    min_indices = []
+    for src_chunk in src.split(int(chunk_size), dim=0):
+        dists = torch.cdist(src_chunk.unsqueeze(0), dst.unsqueeze(0)).squeeze(0)
+        chunk_dists, chunk_indices = dists.min(dim=1)
+        min_dists.append(chunk_dists)
+        min_indices.append(chunk_indices)
+    return torch.cat(min_dists, dim=0), torch.cat(min_indices, dim=0)
 
 # ✅ Gaussian-Newton plane-to-plane ICP
 def icp_generalized_gauss_newton(P: torch.tensor,
@@ -433,33 +451,52 @@ def icp_generalized_gauss_newton(P: torch.tensor,
                                  C_p: torch.tensor,
                                  C_q: torch.tensor,
                                  max_iterations: int = 50,
-                                 tolerance: float = 1e-4) -> tuple:
-    epsilon = torch.eye(3).expand(1, P.shape[1], 3, 3).to('cuda')*1e-3
+                                 tolerance: float = 1e-4,
+                                 inlier_threshold: float = 1.0,
+                                 nn_chunk_size: Optional[int] = None,
+                                 use_kdtree: bool = True,
+                                 damping: float = 1e-6) -> tuple:
     device = P.device
     P = P.t().contiguous().float()  # [N, 3], float32로 변환
     Q = Q.t().contiguous().float()  # [N, 3], float32로 변환
+    C_p = C_p.contiguous().float()
+    C_q = C_q.contiguous().float()
     R = initial_R.clone()   # [3, 3]
     t = initial_t.clone()   # [3, 1]
     P_transformed = (R @ P.t() + t).t()  # [N, 3]
-    # kd_tree = build_kd_tree(Q)
-    for itr in range(max_iterations):
-        # dists, indices = kd_tree.query(P_transformed, nr_nns_searches=1)
-        dists, indices = find_nearest_neighbors(P_transformed, Q)  # [N], [N]
-        indices = indices.squeeze()  # [N]
-        
-        C_q_matched = C_q[indices]  # [N, 3, 3]
-        information_matrix = torch.inverse(C_q_matched + C_p+ epsilon.squeeze(0))  # [N, 3, 3]
+    epsilon = torch.eye(3, device=device, dtype=P.dtype).unsqueeze(0) * 1e-3
+    eye6 = torch.eye(6, device=device, dtype=P.dtype)
 
-        mask = dists.squeeze() < 1.0  # [N]
+    kd_tree = None
+    if use_kdtree:
+        try:
+            kd_tree = build_kd_tree(Q)
+        except Exception:
+            kd_tree = None
+
+    for itr in range(max_iterations):
+        dists, indices = find_nearest_neighbors(
+            P_transformed,
+            Q,
+            kd_tree=kd_tree,
+            chunk_size=nn_chunk_size,
+        )  # [N], [N]
+        indices = indices.squeeze()  # [N]
+
+        mask = dists.squeeze() < float(inlier_threshold)  # [N]
+        if not torch.any(mask):
+            break
+
         P_transformed_masked = P_transformed[mask]  # [M, 3]
         indices_masked = indices[mask]  # [M]
         Q_matched = Q[indices_masked]  # [M, 3]
-        information_matrix_masked = information_matrix[mask]  # [M, 3, 3]
+        C_q_matched = C_q[indices_masked]  # [M, 3, 3]
+        covariance_sum = C_q_matched + C_p[mask] + epsilon  # [M, 3, 3]
         N = P_transformed_masked.shape[0]
         e = P_transformed_masked - Q_matched  # [M, 3]
 
-        I_N = torch.eye(3, device=device).unsqueeze(0).expand(N, 3, 3)  # [M, 3, 3]
-        zeros = torch.zeros(N, device=device)  # [M]
+        I_N = torch.eye(3, device=device, dtype=P.dtype).unsqueeze(0).expand(N, 3, 3)  # [M, 3, 3]
+        zeros = torch.zeros(N, device=device, dtype=P.dtype)  # [M]
 
         skew = torch.stack([
             zeros, -P_transformed_masked[:, 2], P_transformed_masked[:, 1],
@@ -468,14 +505,19 @@ def icp_generalized_gauss_newton(P: torch.tensor,
         ], dim=1).reshape(N, 3, 3)  # [M, 3, 3]
 
         J = torch.cat([I_N, -skew], dim=2)  # [M, 3, 6]
-        WJ = torch.bmm(information_matrix_masked, J)  # [M, 3, 6]
+        WJ = torch.linalg.solve(covariance_sum, J)  # [M, 3, 6]
         JTWJ = torch.bmm(J.transpose(1, 2), WJ)  # [M, 6, 6]
-        Wy = torch.bmm(information_matrix_masked, e.unsqueeze(-1))  # [M, 3, 1]
+        Wy = torch.linalg.solve(covariance_sum, e.unsqueeze(-1))  # [M, 3, 1]
         JTWy = torch.bmm(J.transpose(1, 2), Wy)  # [M, 6, 1]
         JTWJ = JTWJ.mean(dim=0)  # [6, 6]
         JTWy = JTWy.mean(dim=0)  # [6, 1]
 
-        delta = torch.linalg.lstsq(JTWJ, -JTWy).solution  # [6, 1]
+        lhs = JTWJ + float(damping) * eye6
+        rhs = -JTWy
+        try:
+            delta = torch.linalg.solve(lhs, rhs)  # [6, 1]
+        except RuntimeError:
+            delta = torch.linalg.lstsq(lhs, rhs).solution  # [6, 1]
         delta_t = delta[:3]  # [3, 1]
         delta_R = exp_so3(delta[3:])  # [3, 3]
 

@@ -2,7 +2,6 @@ import atexit
 import argparse
 from collections import deque
 import os
-import shutil
 import sys
 
 os.environ.setdefault("PYTHONDONTWRITEBYTECODE", "1")
@@ -23,19 +22,8 @@ if REPO_ROOT not in sys.path:
 from visualization.iridescence_utils import cleanup_imgui_ini, load_iridescence
 
 
-def cleanup_pycache(root_dir):
-    if not os.path.isdir(root_dir):
-        return
-
-    for current_root, dirnames, _ in os.walk(root_dir, topdown=False):
-        for dirname in dirnames:
-            if dirname == "__pycache__":
-                shutil.rmtree(os.path.join(current_root, dirname), ignore_errors=True)
-
-
 def cleanup_runtime_artifacts():
     cleanup_imgui_ini(SCRIPT_DIR)
-    cleanup_pycache(REPO_ROOT)
 
 
 cleanup_runtime_artifacts()
@@ -53,6 +41,10 @@ VISUALIZE_POINT_SIZE = 0.1
 VISUALIZE_SHOW_COVARIANCES = True
 VISUALIZE_COV_STRIDE = 1
 VISUALIZE_COV_SCALE = 0.005
+DEFAULT_ICP_MAX_ITERATIONS = 50
+DEFAULT_ICP_TOLERANCE = 1e-4
+DEFAULT_ICP_INLIER_THRESHOLD = 1.0
+DEFAULT_NN_CHUNK_SIZE = 4096
 
 
 def load_icp_solver():
@@ -100,6 +92,51 @@ def parse_args():
         type=str,
         default="cuda" if torch.cuda.is_available() else "cpu",
         help="Torch device to run the model on.",
+    )
+    parser.add_argument("--num_workers", type=int, default=0, help="DataLoader worker count.")
+    parser.add_argument(
+        "--no_viewer",
+        action="store_true",
+        help="Skip pyridescence visualization for fastest evaluation.",
+    )
+    parser.add_argument(
+        "--visualize_every",
+        type=int,
+        default=1,
+        help="Update viewer every N frames.",
+    )
+    parser.add_argument("--point_stride", type=int, default=VISUALIZE_POINT_STRIDE)
+    parser.add_argument("--history_size", type=int, default=VISUALIZE_HISTORY_SIZE)
+    parser.add_argument("--point_size", type=float, default=VISUALIZE_POINT_SIZE)
+    covariance_group = parser.add_mutually_exclusive_group()
+    covariance_group.add_argument(
+        "--show_covariances",
+        dest="show_covariances",
+        action="store_true",
+        help="Enable covariance ellipsoid visualization.",
+    )
+    covariance_group.add_argument(
+        "--no_covariances",
+        dest="show_covariances",
+        action="store_false",
+        help="Disable covariance ellipsoid visualization.",
+    )
+    parser.set_defaults(show_covariances=VISUALIZE_SHOW_COVARIANCES)
+    parser.add_argument("--cov_stride", type=int, default=VISUALIZE_COV_STRIDE)
+    parser.add_argument("--cov_scale", type=float, default=VISUALIZE_COV_SCALE)
+    parser.add_argument("--icp_max_iterations", type=int, default=DEFAULT_ICP_MAX_ITERATIONS)
+    parser.add_argument("--icp_tolerance", type=float, default=DEFAULT_ICP_TOLERANCE)
+    parser.add_argument("--icp_inlier_threshold", type=float, default=DEFAULT_ICP_INLIER_THRESHOLD)
+    parser.add_argument(
+        "--nn_chunk_size",
+        type=int,
+        default=DEFAULT_NN_CHUNK_SIZE,
+        help="Chunk size for cdist fallback nearest-neighbor search. Set <= 0 to disable chunking.",
+    )
+    parser.add_argument(
+        "--no_kdtree",
+        action="store_true",
+        help="Force cdist nearest-neighbor fallback instead of torch_kdtree.",
     )
     return parser.parse_args()
 
@@ -337,13 +374,12 @@ class POLIGICPViewer:
         )
         if not self.viewer.spin_once():
             self.is_closed = True
-        cleanup_imgui_ini()
 
     def wait(self):
         if self.is_closed:
             return
         self.viewer.spin()
-        cleanup_imgui_ini()
+        cleanup_imgui_ini(SCRIPT_DIR)
 
 
 def save_trajectory_pair(results, output_folder, name):
@@ -390,27 +426,52 @@ def matrix_to_tum(T, idx):
     )
 
 
-def evaluate_dataset(dataloader, model, icp_solver, mean, scaling_factor, device, viewer=None):
+def predict_covariances(model, normalized_P, normalized_Q):
+    if normalized_P.shape == normalized_Q.shape:
+        covariances = model(torch.cat([normalized_P, normalized_Q], dim=0))
+        C_p_raw, C_q_raw = covariances.chunk(2, dim=0)
+    else:
+        C_p_raw = model(normalized_P)
+        C_q_raw = model(normalized_Q)
+
+    C_p = covariance_generation(C_p_raw.permute(0, 2, 1)).squeeze(0)
+    C_q = covariance_generation(C_q_raw.permute(0, 2, 1)).squeeze(0)
+    return C_p, C_q
+
+
+def evaluate_dataset(
+    dataloader,
+    model,
+    icp_solver,
+    mean,
+    scaling_factor,
+    device,
+    viewer=None,
+    visualize_every=1,
+    icp_max_iterations=DEFAULT_ICP_MAX_ITERATIONS,
+    icp_tolerance=DEFAULT_ICP_TOLERANCE,
+    icp_inlier_threshold=DEFAULT_ICP_INLIER_THRESHOLD,
+    nn_chunk_size=DEFAULT_NN_CHUNK_SIZE,
+    use_kdtree=True,
+):
     R_prev = torch.eye(3, device=device)
     t_prev = torch.zeros((3, 1), device=device)
     dgicp_result = []
     T_est_chain = torch.eye(4, device=device)
     T_gt_chain = torch.eye(4, device=device)
     sample_files = getattr(dataloader.dataset, "sample_files", None)
+    visualize_every = max(1, int(visualize_every))
+    nn_chunk_size = None if nn_chunk_size is None or nn_chunk_size <= 0 else int(nn_chunk_size)
 
-    with torch.no_grad():
+    with torch.inference_mode():
         for frame_idx, batch in enumerate(tqdm(dataloader, desc="POLI-GICP")):
-            P = batch["P"].to(device)
-            Q = batch["Q"].to(device)
-            R_rel = batch["R_rel"].to(device).squeeze(0)
-            t_rel = batch["t_rel"].to(device).squeeze(0)
+            P = batch["P"].to(device, non_blocking=True)
+            Q = batch["Q"].to(device, non_blocking=True)
+            R_rel = batch["R_rel"].to(device, non_blocking=True).squeeze(0)
+            t_rel = batch["t_rel"].to(device, non_blocking=True).squeeze(0)
 
             normalized_P, normalized_Q = scale_aware_normalization(P, Q, mean, scaling_factor)
-
-            C_p = model(normalized_P)
-            C_q = model(normalized_Q)
-            C_p = covariance_generation(C_p.permute(0, 2, 1)).squeeze(0)
-            C_q = covariance_generation(C_q.permute(0, 2, 1)).squeeze(0)
+            C_p, C_q = predict_covariances(model, normalized_P, normalized_Q)
 
             R_dgicp, t_dgicp = icp_solver(
                 P.squeeze(0),
@@ -419,6 +480,11 @@ def evaluate_dataset(dataloader, model, icp_solver, mean, scaling_factor, device
                 t_prev,
                 C_p,
                 C_q,
+                max_iterations=icp_max_iterations,
+                tolerance=icp_tolerance,
+                inlier_threshold=icp_inlier_threshold,
+                nn_chunk_size=nn_chunk_size,
+                use_kdtree=use_kdtree,
             )
             R_prev = R_dgicp
             t_prev = t_dgicp
@@ -428,7 +494,7 @@ def evaluate_dataset(dataloader, model, icp_solver, mean, scaling_factor, device
             T_world_est = torch.linalg.inv(T_est_chain)
             T_world_gt = torch.linalg.inv(T_gt_chain)
 
-            if viewer is not None:
+            if viewer is not None and frame_idx % visualize_every == 0:
                 sample_path = sample_files[frame_idx] if sample_files is not None else f"frame_{frame_idx:06d}"
                 viewer.update(
                     frame_idx=frame_idx,
@@ -465,7 +531,14 @@ def main(args):
     if len(dataset) == 0:
         raise RuntimeError(f"No parsed '.npz' files found in dataset_dir: {args.dataset_dir}")
 
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
+    pin_memory = device.type == "cuda"
+    dataloader = DataLoader(
+        dataset,
+        batch_size=1,
+        shuffle=False,
+        num_workers=max(0, int(args.num_workers)),
+        pin_memory=pin_memory,
+    )
     model = PointPP().to(device)
     checkpoint = torch.load(args.checkpoint, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
@@ -476,15 +549,17 @@ def main(args):
     print(f"Device: {device}")
     print(f"Dataset: {args.dataset_dir}")
     print(f"Samples: {len(dataset)}")
-    viewer = POLIGICPViewer(
-        dataset_name=dataset_name_from_path(args.dataset_dir),
-        point_stride=VISUALIZE_POINT_STRIDE,
-        history_size=VISUALIZE_HISTORY_SIZE,
-        point_size=VISUALIZE_POINT_SIZE,
-        show_covariances=VISUALIZE_SHOW_COVARIANCES,
-        cov_stride=VISUALIZE_COV_STRIDE,
-        cov_scale=VISUALIZE_COV_SCALE,
-    )
+    viewer = None
+    if not args.no_viewer:
+        viewer = POLIGICPViewer(
+            dataset_name=dataset_name_from_path(args.dataset_dir),
+            point_stride=args.point_stride,
+            history_size=args.history_size,
+            point_size=args.point_size,
+            show_covariances=args.show_covariances,
+            cov_stride=args.cov_stride,
+            cov_scale=args.cov_scale,
+        )
 
     results = evaluate_dataset(
         dataloader=dataloader,
@@ -494,12 +569,19 @@ def main(args):
         scaling_factor=args.scaling_factor,
         device=device,
         viewer=viewer,
+        visualize_every=args.visualize_every,
+        icp_max_iterations=args.icp_max_iterations,
+        icp_tolerance=args.icp_tolerance,
+        icp_inlier_threshold=args.icp_inlier_threshold,
+        nn_chunk_size=args.nn_chunk_size,
+        use_kdtree=not args.no_kdtree,
     )
 
     save_trajectory_pair(results, args.output_folder, dataset_name_from_path(args.dataset_dir))
 
-    print("Close the pyridescence viewer to finish.")
-    viewer.wait()
+    if viewer is not None:
+        print("Close the pyridescence viewer to finish.")
+        viewer.wait()
 
 
 if __name__ == "__main__":

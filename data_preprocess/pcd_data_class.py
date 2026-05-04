@@ -16,12 +16,12 @@ class PCD_Dataset(Dataset):
     def __getitem__(self, idx):
         sample = np.load(self.sample_files[idx])
         sample_data = {
-            'P': torch.tensor(sample['P'], dtype=torch.float32),
-            'Q': torch.tensor(sample['Q'], dtype=torch.float32),
-            'R_rel': torch.tensor(sample['R_rel'], dtype=torch.float32),
-            't_rel': torch.tensor(sample['t_rel'], dtype=torch.float32),
-            'dists': torch.tensor(sample['dists'], dtype=torch.float32),
-            'indices': torch.tensor(sample['indices'], dtype=torch.int64),
+            'P': torch.from_numpy(sample['P'].astype(np.float32, copy=False)),
+            'Q': torch.from_numpy(sample['Q'].astype(np.float32, copy=False)),
+            'R_rel': torch.from_numpy(sample['R_rel'].astype(np.float32, copy=False)),
+            't_rel': torch.from_numpy(sample['t_rel'].astype(np.float32, copy=False)),
+            'dists': torch.from_numpy(sample['dists'].astype(np.float32, copy=False)),
+            'indices': torch.from_numpy(sample['indices'].astype(np.int64, copy=False)),
         }
 
         return sample_data
