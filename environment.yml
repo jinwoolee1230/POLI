@@ -1,0 +1,24 @@
+name: radar
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.10.18
+  - git
+  - pip
+  - pip:
+      - numpy==2.2.6
+      - scipy==1.15.3
+      - matplotlib==3.10.7
+      - tqdm==4.67.1
+      - open3d==0.19.0
+      - tensorboard==2.20.0
+      - torch==2.9.0
+      - torchvision==0.24.0
+
+# Install manually after `conda env create -f environment.yml`:
+# - pointnet2_ops
+# - sdprlayer / sdprlayers
+# - ROBIN / spark_robin
+# - pyridescence
+# - torch_kdtree

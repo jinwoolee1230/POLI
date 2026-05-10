@@ -1,15 +1,21 @@
 # Global Registration Demo
 
-Run commands from this folder:
+Run commands from the repository root.
 
 Without POLI densification, use the original points only:
 
 ```bash
-python demo.py --sample ./sample --samples-per-point 0
+python applications/global_registration/POLI_FPFH_ROBIN_GNC.py \
+  --sample applications/global_registration/sample.npz \
+  --checkpoint weights/HeLiPR/vlp_helipr_0.2m.pth \
+  --samples_per_point 0
 ```
 
 With POLI densification:
 
 ```bash
-python demo.py --sample ./sample --samples-per-point 100
+python applications/global_registration/POLI_FPFH_ROBIN_GNC.py \
+  --sample applications/global_registration/sample.npz \
+  --checkpoint weights/HeLiPR/vlp_helipr_0.2m.pth \
+  --samples_per_point 100
 ```
