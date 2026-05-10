@@ -245,6 +245,30 @@ python train.py \
     --mean            [MEAN] \
     --scaling_factor  [SCALING_FACTOR]
 ```
+---
+
+## Authors
+
+**Jinwoo Lee\*** <sup>1</sup> 
+[![GitHub](https://img.shields.io/badge/-GitHub-181717?style=flat&logo=github)](https://github.com/jinwoolee1230), 
+**Jiwoo Kim\*** <sup>1</sup> 
+[![GitHub](https://img.shields.io/badge/-GitHub-181717?style=flat&logo=github)](https://github.com/Tars0523), 
+**Woojae Shin** <sup>1</sup> 
+[![GitHub](https://img.shields.io/badge/-GitHub-181717?style=flat&logo=github)](https://github.com/sindream), 
+**Giseop Kim** <sup>2</sup> 
+[![GitHub](https://img.shields.io/badge/-GitHub-181717?style=flat&logo=github)](https://github.com/gisbi-kim), 
+and **Hyondong Oh** <sup>1</sup> 
+[![Scholar](https://img.shields.io/badge/-Scholar-4285F4?style=flat&logo=googlescholar&logoColor=white)](https://scholar.google.com/citations?user=q_Pbm3kAAAAJ&hl=en)
+
+<h3>
+<sup>1</sup> <a href="https://fair.kaist.ac.kr/">Field AI and Robotics Laboratory (FAIR)</a>,<br>
+Korea Advanced Institute of Science and Technology (KAIST), Daejeon, Republic of Korea
+</h3>
+
+<h3>
+<sup>2</sup> <a href="https://sites.google.com/view/aprl-dgist">Autonomy and Perceptual Robotics Lab (APRL)</a>,<br>
+Daegu Gyeongbuk Institute of Science and Technology (DGIST), Daegu, Republic of Korea
+</h3>
 
 ---
 
