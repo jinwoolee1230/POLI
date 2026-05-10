@@ -7,9 +7,11 @@
 ---
 
 
-## About POLI
+## About POLI (Point-to-Ellipsoid)
 
-**"Self-supervised geometry reasoning for robotic 3D perception"**
+<div align="center">
+  <h3><em>Self-supervised geometry reasoning for 3D perception</em></h3>
+</div>
 
 <div align="center">
   <img src="./assets/main.png" alt="POLI architecture" width="100%"/>
