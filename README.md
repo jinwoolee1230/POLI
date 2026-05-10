@@ -1,8 +1,21 @@
 <div align="center">
 
-<img src="./assets/output.gif" alt="POLI demo" width="80%"/>
+<img src="./assets/main2.gif" alt="POLI demo" width="100%"/>
 
 </div>
+
+---
+
+
+## About POLI
+
+**"Self-supervised geometry reasoning for robotic 3D perception"**
+
+<div align="center">
+  <img src="./assets/main.png" alt="POLI architecture" width="90%"/>
+</div>
+
+> Point clouds are a fundamental representation for robotic perception tasks such as **localization, mapping, and object pose estimation**. However, LiDAR-acquired point clouds are inherently **sparse and non-uniform**, providing incomplete observations of the underlying geometry. Such sparsity and non-uniformity hinder reliable geometric reasoning, leading to degraded performance in downstream perception tasks. To mitigate these issues, prior work has attempted to compensate for the sparsity and non-uniformity of point clouds by estimating point cloud geometry. However, in the absence of an explicit model of point cloud geometry, existing approaches have predominantly relied on either **hand-crafted statistics** of local point distributions or **end-to-end supervised deep learning**, which often suffer from limited scalability or require large amounts of accurately labeled training data. To address these challenges, we explicitly model and estimate point cloud geometry under a principled mathematical formulation. **Theoretically**, we represent the point cloud geometry as a *statistical manifold* induced by a family of Gaussian distributions that captures the local geometry of each point. Building on this formulation, we design a probabilistic model that predicts per-point local geometry in the form of a Gaussian distribution. **Practically**, we introduce a deep neural network to instantiate the estimation of these Gaussian distributions, and term the resulting estimator as **Point-to-Ellipsoid (POLI)**. By consistently estimating point-wise local geometry across diverse point clouds, POLI learns a mapping between point cloud observations and their underlying geometry. Importantly, this mapping is learned in a **self-supervised manner**, removing the reliance on labeled data while maintaining strong geometric inductive biases. The resulting representation integrates seamlessly into existing robotic perception pipelines **without requiring architectural modifications**. Extensive experiments demonstrate that the proposed theory and practice enable **accurate and robust estimation of point cloud geometry** and consistently improve performance across a wide range of robotic perception tasks.
 
 ---
 
@@ -68,7 +81,7 @@ conda activate poli
 ### 1. Global Registration
 
 <div align="center">
-  <img src="./assets/global.gif" alt="Global Registration Demo" width="75%"/>
+  <img src="./assets/global.gif" alt="Global Registration Demo" width="100%"/>
 </div>
 
 **Command**
@@ -111,7 +124,7 @@ R_est, t_est = registration(src_inliers, tgt_inliers)
 ### 2. Object Pose Estimation
 
 <div align="center">
-  <img src="./assets/obj.gif" alt="Object Pose Estimation Demo" width="75%"/>
+  <img src="./assets/obj.gif" alt="Object Pose Estimation Demo" width="100%"/>
 </div>
 
 **Command**
@@ -154,7 +167,7 @@ R_est, t_est = registration(src_inliers, tgt_inliers)
 ### 3. LiDAR Odometry
 
 <div align="center">
-  <img src="./assets/odom.gif" alt="POLI-GICP LiDAR Odometry Demo" width="75%"/>
+  <img src="./assets/odom.gif" alt="POLI-GICP LiDAR Odometry Demo" width="100%"/>
 </div>
 
 **Command**
