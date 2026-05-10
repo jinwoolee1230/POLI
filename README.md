@@ -19,7 +19,7 @@ cd POLI
 
 ```bash
 conda env create -f environment.yml
-conda activate radar
+conda activate poli
 ```
 
 ### Step 3. Install Additional Dependencies

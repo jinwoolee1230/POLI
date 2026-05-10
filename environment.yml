@@ -1,4 +1,4 @@
-name: radar
+name: poli
 channels:
   - conda-forge
 
