@@ -166,7 +166,7 @@ python applications/lidar_odometry/POLI_GICP.py \
 ```
 
 <details open>
-<summary><b>Pipeline &mdash; POLI + Generalized-ICP</b></summary>
+<summary><b>Pipeline &mdash; POLI-Covariance + Generalized-ICP</b></summary>
 
 ```python
 # 1. Load the pretrained POLI model
