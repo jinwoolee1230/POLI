@@ -29,7 +29,7 @@ conda activate radar
 
 | Package | Repository |
 |:--------|:-----------|
-| `pointnet2_ops`          | [fishbotics/pointnet2_ops](https://github.com/erikwijmans/Pointnet2_PyTorch) |
+| `pointnet2_ops`          | [Pointnet2_PyTorch/pointnet2_ops](https://github.com/erikwijmans/Pointnet2_PyTorch) |
 | `sdprlayer / sdprlayers` | [utiasASRL/sdprlayer](https://github.com/utiasASRL/sdprlayer) |
 | `torch_kdtree`           | [thomgrand/torch_kdtree](https://github.com/thomgrand/torch_kdtree) |
 
@@ -40,7 +40,7 @@ conda activate radar
 
 | Package | Repository |
 |:--------|:-----------|
-| `pointnet2_ops`        | [fishbotics/pointnet2_ops](https://github.com/erikwijmans/Pointnet2_PyTorch) |
+| `pointnet2_ops`        | [Pointnet2_PyTorch/pointnet2_ops](https://github.com/erikwijmans/Pointnet2_PyTorch) |
 | `ROBIN / spark_robin`  | [MIT-SPARK/ROBIN](https://github.com/MIT-SPARK/ROBIN) |
 | `pyridescence`         | [koide3/iridescence](https://github.com/koide3/iridescence.git) |
 | `torch_kdtree`         | [thomgrand/torch_kdtree](https://github.com/thomgrand/torch_kdtree) |
