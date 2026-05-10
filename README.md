@@ -249,24 +249,59 @@ python train.py \
 
 ## Authors
 
-**Jinwoo Lee\*** <sup>1</sup> 
-[![GitHub](https://img.shields.io/badge/-GitHub-181717?style=flat&logo=github)](https://github.com/jinwoolee1230), 
-**Jiwoo Kim\*** <sup>1</sup> 
-[![GitHub](https://img.shields.io/badge/-GitHub-181717?style=flat&logo=github)](https://github.com/Tars0523), 
-**Woojae Shin** <sup>1</sup> 
-[![GitHub](https://img.shields.io/badge/-GitHub-181717?style=flat&logo=github)](https://github.com/sindream), 
-**Giseop Kim** <sup>2</sup> 
-[![GitHub](https://img.shields.io/badge/-GitHub-181717?style=flat&logo=github)](https://github.com/gisbi-kim), 
-and **Hyondong Oh** <sup>1</sup> 
-[![Scholar](https://img.shields.io/badge/-Scholar-4285F4?style=flat&logo=googlescholar&logoColor=white)](https://scholar.google.com/citations?user=q_Pbm3kAAAAJ&hl=en)
+<table>
+  <tr>
+    <td align="center">
+      <b>Jinwoo Lee*</b><sup>1</sup><br>
+      <a href="https://github.com/jinwoolee1230">
+        <img src="https://img.shields.io/badge/-GitHub-181717?style=flat&logo=github" />
+      </a>
+      <a href="https://scholar.google.com/citations?user=NVsHmQ8AAAAJ&hl=ko">
+        <img src="https://img.shields.io/badge/-Scholar-4285F4?style=flat&logo=googlescholar&logoColor=white" />
+      </a>
+    </td>
+    <td align="center">
+      <b>Jiwoo Kim*</b><sup>1</sup><br>
+      <a href="https://github.com/Tars0523">
+        <img src="https://img.shields.io/badge/-GitHub-181717?style=flat&logo=github" />
+      </a>
+    </td>
+    <td align="center">
+      <b>Woojae Shin</b><sup>1</sup><br>
+      <a href="https://github.com/sindream">
+        <img src="https://img.shields.io/badge/-GitHub-181717?style=flat&logo=github" />
+      </a>
+      <a href="https://scholar.google.com/citations?hl=ko&user=sMNOzA8AAAAJ">
+        <img src="https://img.shields.io/badge/-Scholar-4285F4?style=flat&logo=googlescholar&logoColor=white" />
+      </a>
+    </td>
+    <td align="center">
+      <b>Giseop Kim</b><sup>2</sup><br>
+      <a href="https://github.com/gisbi-kim">
+        <img src="https://img.shields.io/badge/-GitHub-181717?style=flat&logo=github" />
+      </a>
+      <a href="https://scholar.google.com/citations?hl=ko&user=9mKOLX8AAAAJ">
+        <img src="https://img.shields.io/badge/-Scholar-4285F4?style=flat&logo=googlescholar&logoColor=white" />
+      </a>
+    </td>
+    <td align="center">
+      <b>Hyondong Oh</b><sup>1</sup><br>
+      <a href="https://scholar.google.com/citations?user=q_Pbm3kAAAAJ&hl=en">
+        <img src="https://img.shields.io/badge/-Scholar-4285F4?style=flat&logo=googlescholar&logoColor=white" />
+      </a>
+    </td>
+  </tr>
+</table>
 
 <h3>
-<sup>1</sup> <a href="https://fair.kaist.ac.kr/">Field AI and Robotics Laboratory (FAIR)</a>,<br>
+<sup>1</sup> <a href="https://fair.kaist.ac.kr/">Field AI and Robotics Laboratory (FAIR)</a>
+<img src="./assets/fair.png" alt="FAIR" height="50"/><br>
 Korea Advanced Institute of Science and Technology (KAIST), Daejeon, Republic of Korea
 </h3>
 
 <h3>
-<sup>2</sup> <a href="https://sites.google.com/view/aprl-dgist">Autonomy and Perceptual Robotics Lab (APRL)</a>,<br>
+<sup>2</sup> <a href="https://sites.google.com/view/aprl-dgist">Autonomy and Perceptual Robotics Lab (APRL)</a>
+<img src="./assets/aprl.png" alt="APRL" height="50"/><br>
 Daegu Gyeongbuk Institute of Science and Technology (DGIST), Daegu, Republic of Korea
 </h3>
 
@@ -275,4 +310,3 @@ Daegu Gyeongbuk Institute of Science and Technology (DGIST), Daegu, Republic of 
 ## License
 
 This project is released under the **MIT License**. See [LICENSE](./LICENSE) for details.
-
