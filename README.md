@@ -1,8 +1,37 @@
 <div align="center">
 
+# POLI: Point-to-Ellipsoid
+### *Learning Point Cloud Geometry as a Statistical Manifold*
+
 <img src="./assets/main2.gif" alt="POLI demo" width="100%"/>
 
 </div>
+
+<table>
+  <tr>
+    <td width="33%" align="center">
+      <img src="./assets/global.gif" alt="Global Registration" width="100%"/>
+      <br><sub><b>🌍 Global Registration</b></sub>
+    </td>
+    <td width="33%" align="center">
+      <img src="./assets/obj.gif" alt="Object Pose Estimation" width="100%"/>
+      <br><sub><b>📦 Object Pose Estimation</b></sub>
+    </td>
+    <td width="33%" align="center">
+      <img src="./assets/odom.gif" alt="LiDAR Odometry" width="100%"/>
+      <br><sub><b>🚗 LiDAR Odometry</b></sub>
+    </td>
+  </tr>
+</table>
+
+
+---
+
+> **POLI turns sparse, messy LiDAR point clouds into rich geometric understanding** — a single **self-supervised** network predicts a **Gaussian ellipsoid per point**, capturing local geometry on a *statistical manifold*. **Plug it into any 3D perception pipeline** — registration, object pose estimation, LiDAR odometry — and get instant accuracy gains. **No labels. No architectural changes. Just better geometry.**
+
+**Paper:** [arXiv](https://arxiv.org/abs/2605.10456)
+
+**Accepted for publication in Robotics: Science and Systems (RSS) 2026.**
 
 ```bibtex
 @misc{lee2026learningpointcloudgeometry,
@@ -15,6 +44,8 @@
   url           = {https://arxiv.org/abs/2605.10456},
 }
 ```
+
+---
 
 ---
 
