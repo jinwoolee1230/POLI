@@ -4,6 +4,18 @@
 
 </div>
 
+```bibtex
+@misc{lee2026learningpointcloudgeometry,
+  title         = {Learning Point Cloud Geometry as a Statistical Manifold: Theory and Practice},
+  author        = {Jinwoo Lee and Jiwoo Kim and Woojae Shin and Giseop Kim and Hyondong Oh},
+  year          = {2026},
+  eprint        = {2605.10456},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.RO},
+  url           = {https://arxiv.org/abs/2605.10456},
+}
+```
+
 ---
 
 
