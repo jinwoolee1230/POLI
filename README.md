@@ -45,6 +45,19 @@
 }
 ```
 
+**Additional Research:** *Self-supervised Geometry Reasoning for LiDAR Simultaneous Localization and Mapping*
+
+**Accepted for publication at the RSS 2026 Workshop on Perception to Action.**
+
+```bibtex
+@article{kim2026self,
+  title={Self-supervised Geometry Reasoning for LiDAR Simultaneous Localization and Mapping},
+  author={Kim, Jiwoo and Lee, Jinwoo and Shin, Woojae and Kim, Giseop and Oh, Hyondong},
+  journal={arXiv preprint arXiv:2606.30166},
+  year={2026}
+}
+```
+
 ---
 
 ---
