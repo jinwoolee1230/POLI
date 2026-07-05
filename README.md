@@ -47,6 +47,9 @@
 
 **Additional Research:** *Self-supervised Geometry Reasoning for LiDAR Simultaneous Localization and Mapping*
 
+
+**Paper:** [arXiv](https://arxiv.org/abs/2606.30166)
+
 **Accepted for publication at the RSS 2026 Workshop on Perception to Action.**
 
 ```bibtex
