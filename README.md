@@ -50,7 +50,7 @@
 
 **Paper:** [arXiv](https://arxiv.org/abs/2606.30166)
 
-**Accepted for publication at the RSS 2026 Workshop on Perception to Action.**
+**Accepted to the RSS 2026 Workshop on Perception to Action.**
 
 ```bibtex
 @article{kim2026self,
